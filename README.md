@@ -101,13 +101,34 @@ request — it flattens formatting, and that is the trade.
 ## Writing
 
 ```swift
-try await notion.createPage(parent: url, title: "Notes", paragraphs: ["…"])
-try await notion.append(to: url, paragraphs: ["…"])
+try await notion.createPage(parent: url, title: "Notes", markdown: document)
+try await notion.write(pageURL, markdown: document)     // replace the content
+try await notion.appendMarkdown(to: pageURL, markdown: "…")
 ```
 
-Paragraphs and headings only. Notion's block model is far larger, and a partial
-Markdown converter that silently drops your tables would be worse than one that
-states its scope.
+`PATCH /v1/pages/{id}/markdown` with `replace_content`, so **Notion parses the
+Markdown**: headings, lists, tables, quotes and fenced code all arrive as real
+blocks. Verified live by publishing a 6 KB article — two tables, three code
+fences, eight headings, all intact on read-back.
+
+A replace **refuses to remove a child page or database** unless
+`allowDeletingContent: true` is passed. A subpage cannot vanish by accident.
+
+The older `createPage(parent:title:paragraphs:)` and `append(to:paragraphs:)`
+build a `children` array by hand and cover paragraphs only. Prefer the Markdown
+calls unless you have a reason not to.
+
+### Two things measured about Notion's Markdown
+
+**Emphasis must not span a line break.** `**a span that wraps\ninto a second
+line**` is not parsed — the asterisks are dropped and the text arrives plain.
+Anyone hard-wrapping Markdown at 80 columns will hit this.
+
+**Bold around inline code comes back mangled but stable.** ``**a run with
+`code` inside**`` reads back as ``**a run with ****`code`**** inside**``,
+because Notion stores the styled runs separately and re-emits markers around
+each. It looks wrong but re-parses to the same thing, so a read-modify-write
+cycle is safe — measured over two passes, not assumed.
 
 ## Scope, honestly
 

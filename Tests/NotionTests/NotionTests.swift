@@ -255,6 +255,15 @@ final class NotionTests: XCTestCase {
                 return (Data(body.utf8), response)
             }
         }
+
+        var lastMethod: String? { requests.last?.httpMethod }
+        var lastPath: String? { requests.last?.url?.path }
+        /// What actually went over the wire, so a request's SHAPE can be
+        /// asserted rather than only its effect.
+        var lastBodyJSON: [String: Any]? {
+            guard let data = requests.last?.httpBody else { return nil }
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
     }
 
     func testEveryRequestCarriesTheVersionHeaderNotionDemands() async throws {
@@ -348,6 +357,51 @@ final class NotionTests: XCTestCase {
         let text = try await Notion(token: "t", transport: recorder.transport)
             .markdown("2f8e1c0d123456789abcdef012345678")
         XCTAssertEqual(text, "")
+    }
+
+    // MARK: - Writing Markdown
+
+    /// The write must go out as `replace_content`, and must NOT permit
+    /// deleting a subpage unless the caller said so. Getting that default
+    /// wrong loses a child page with no warning.
+    func testWriteSendsReplaceContentAndRefusesToDeleteByDefault() async throws {
+        // ##"…"## — a `"#` inside would close a single-hash raw string.
+        let recorder = Recorder(##"{"object":"page_markdown","id":"p1","markdown":"# Hi","truncated":false,"unknown_block_ids":[]}"##)
+        _ = try await Notion(token: "t", transport: recorder.transport)
+            .write("2f8e1c0d123456789abcdef012345678", markdown: "# Hi")
+
+        let sent = try XCTUnwrap(recorder.lastBodyJSON)
+        XCTAssertEqual(recorder.lastMethod, "PATCH")
+        XCTAssertTrue(recorder.lastPath?.hasSuffix("/markdown") ?? false)
+        XCTAssertEqual(sent["type"] as? String, "replace_content")
+        let replace = try XCTUnwrap(sent["replace_content"] as? [String: Any])
+        XCTAssertEqual(replace["new_str"] as? String, "# Hi")
+        XCTAssertEqual(replace["allow_deleting_content"] as? Bool, false,
+                       "a subpage must not vanish by default")
+    }
+
+    func testWriteCanBeToldToAllowDeleting() async throws {
+        let recorder = Recorder(#"{"object":"page_markdown","id":"p1","markdown":"x","truncated":false,"unknown_block_ids":[]}"#)
+        _ = try await Notion(token: "t", transport: recorder.transport)
+            .write("2f8e1c0d123456789abcdef012345678", markdown: "x",
+                   allowDeletingContent: true)
+
+        let replace = try XCTUnwrap(
+            (recorder.lastBodyJSON?["replace_content"]) as? [String: Any])
+        XCTAssertEqual(replace["allow_deleting_content"] as? Bool, true)
+    }
+
+    /// Markdown must reach Notion byte for byte — escaping or re-wrapping it
+    /// would turn fenced code into prose.
+    func testMarkdownIsSentVerbatim() async throws {
+        let body = "# T\n\n- a\n- b\n\n```swift\nlet x = 1\n```\n\n> quote"
+        let recorder = Recorder(#"{"object":"page_markdown","id":"p1","markdown":"x","truncated":false,"unknown_block_ids":[]}"#)
+        _ = try await Notion(token: "t", transport: recorder.transport)
+            .write("2f8e1c0d123456789abcdef012345678", markdown: body)
+
+        let replace = try XCTUnwrap(
+            (recorder.lastBodyJSON?["replace_content"]) as? [String: Any])
+        XCTAssertEqual(replace["new_str"] as? String, body)
     }
 
     /// Notion answers 404 for "gone" and for "not shared with you" alike.

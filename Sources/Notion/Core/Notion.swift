@@ -225,6 +225,52 @@ public struct Notion: Sendable {
         return try decode(Page.self, from: data)
     }
 
+    /// Writes Markdown as a page's whole content, replacing what is there.
+    ///
+    /// `PATCH /v1/pages/{id}/markdown` with `replace_content` — Notion parses
+    /// the Markdown itself, so headings, lists, tables, quotes and fenced code
+    /// all arrive as real blocks. That is the whole reason to prefer it over
+    /// hand-building a `children` array, which only ever covered paragraphs.
+    ///
+    /// - Parameter allowDeletingContent: Notion refuses by default when the
+    ///   replacement would remove a child page or database. Nothing silently
+    ///   deletes a subpage.
+    @discardableResult
+    public func write(_ identifier: String, markdown: String,
+                      allowDeletingContent: Bool = false) async throws -> PageMarkdown {
+        let id = try Notion.identifier(identifier)
+        let body = JSONValue.object([
+            "type": .string("replace_content"),
+            "replace_content": .object([
+                "new_str": .string(markdown),
+                "allow_deleting_content": .bool(allowDeletingContent),
+            ]),
+        ])
+        let data = try await request("PATCH", "/v1/pages/\(id)/markdown", body: body)
+        return try decode(PageMarkdown.self, from: data)
+    }
+
+    /// Adds Markdown to the end of a page, keeping what is already there.
+    @discardableResult
+    public func appendMarkdown(to identifier: String, markdown: String) async throws -> PageMarkdown {
+        let existing = try await pageMarkdown(identifier).markdown
+        let joined = existing.isEmpty ? markdown : existing + "\n\n" + markdown
+        return try await write(identifier, markdown: joined)
+    }
+
+    /// Creates a page under a parent and fills it from Markdown.
+    ///
+    /// Two calls, because Notion creates and renders separately: the page is
+    /// made empty, then its content is written. A failure in the second leaves
+    /// an empty page rather than a half-written one.
+    public func createPage(parent: String, title: String,
+                           markdown: String) async throws -> Page {
+        let page = try await createPage(parent: parent, title: title)
+        guard !markdown.isEmpty else { return page }
+        _ = try await write(page.id, markdown: markdown)
+        return page
+    }
+
     /// Appends paragraphs to an existing page.
     public func append(to identifier: String, paragraphs: [String]) async throws -> [Block] {
         guard !paragraphs.isEmpty else { return [] }
