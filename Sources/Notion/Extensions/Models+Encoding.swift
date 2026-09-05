@@ -80,3 +80,20 @@ extension User {
         try container.encodeIfPresent(botOwner, forKey: .botOwner)
     }
 }
+
+extension PageMarkdown {
+    private enum OutputKeys: String, CodingKey {
+        case id, markdown, truncated, unknownBlockIDs, isComplete
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: OutputKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(markdown, forKey: .markdown)
+        try container.encode(truncated, forKey: .truncated)
+        if !unknownBlockIDs.isEmpty {
+            try container.encode(unknownBlockIDs, forKey: .unknownBlockIDs)
+        }
+        try container.encode(isComplete, forKey: .isComplete)
+    }
+}

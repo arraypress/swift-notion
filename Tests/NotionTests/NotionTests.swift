@@ -271,16 +271,83 @@ final class NotionTests: XCTestCase {
 
     /// A valid token that has been shared nothing looks like an empty
     /// workspace. Saying so is the difference between a fix and a bug report.
-    func testAnEmptySearchIsReportedAsNotSharedRatherThanNoResults() async {
+    /// Only an UNFILTERED search can make that claim.
+    func testAnEmptyUnfilteredSearchIsReportedAsNotShared() async {
         let recorder = Recorder(#"{"object":"list","results":[]}"#)
         do {
-            _ = try await Notion(token: "t", transport: recorder.transport).search("anything")
+            _ = try await Notion(token: "t", transport: recorder.transport).search()
             XCTFail("an empty result should be explained")
         } catch let error as NotionError {
             guard case .notShared = error else {
                 return XCTFail("expected .notShared, got \(error)")
             }
         } catch { XCTFail("unexpected \(error)") }
+    }
+
+    /// Verified live: Notion answers a query that matches nothing with HTTP 200
+    /// and `results: []`. That is an answer. Calling it "nothing is shared"
+    /// sends the caller off to re-share pages that were never the problem.
+    func testAQueryThatMatchesNothingReturnsEmptyRatherThanThrowing() async throws {
+        let recorder = Recorder(#"{"object":"list","results":[]}"#)
+        let results = try await Notion(token: "t", transport: recorder.transport)
+            .search("zzqqxxnonexistentterm")
+        XCTAssertTrue(results.isEmpty)
+        XCTAssertEqual(results.count, 0)
+    }
+
+    /// The same holds when only a kind was named.
+    func testAKindFilterThatMatchesNothingAlsoReturnsEmpty() async throws {
+        let recorder = Recorder(#"{"object":"list","results":[]}"#)
+        let results = try await Notion(token: "t", transport: recorder.transport)
+            .search("", kind: .database)
+        XCTAssertTrue(results.isEmpty)
+    }
+
+    // MARK: - Markdown
+
+    /// The real shape, captured live from `GET /v1/pages/{id}/markdown`.
+    /// Notion's own renderer keeps the inline formatting a block walk drops:
+    /// bold, italics, strikethrough, code, links and colour all survive.
+    func testMarkdownComesFromNotionsRendererWithFormattingIntact() async throws {
+        let body = #"""
+        {"object":"page_markdown","id":"2f8e1c0d-1234-5678-9abc-def012345678",
+         "markdown":"\ud83d\udc4b Welcome to Notion!\n<empty-block/>\nHere are the basics:\n- [ ] Highlight any text, and use the menu that pops up to **style** *your* ~~writing~~ `however` [you](https://www.notion.so/product) <span color=\"yellow_bg\">like</span>\n<details>\n<summary>This is a toggle block.</summary>\n\t- more\n</details>",
+         "truncated":false,"unknown_block_ids":[]}
+        """#
+        let recorder = Recorder(body)
+        let page = try await Notion(token: "t", transport: recorder.transport)
+            .pageMarkdown("2f8e1c0d123456789abcdef012345678")
+
+        XCTAssertTrue(page.isComplete)
+        XCTAssertFalse(page.truncated)
+        for kept in ["**style**", "*your*", "~~writing~~", "`however`",
+                     "[you](https://www.notion.so/product)", "<details>",
+                     #"<span color="yellow_bg">"#] {
+            XCTAssertTrue(page.markdown.contains(kept), "the renderer's \(kept) was lost")
+        }
+    }
+
+    /// `truncated` and `unknown_block_ids` are how the endpoint admits the
+    /// Markdown is incomplete. Ignoring them loses content silently.
+    func testAnIncompleteRenderIsNotReportedAsComplete() async throws {
+        // NB: ##"…"## — a `"#` inside would close a single-hash raw string.
+        let body = ##"{"object":"page_markdown","id":"x","markdown":"# Part one","truncated":true,"unknown_block_ids":["b1","b2"]}"##
+        let recorder = Recorder(body)
+        let page = try await Notion(token: "t", transport: recorder.transport)
+            .pageMarkdown("2f8e1c0d123456789abcdef012345678")
+
+        XCTAssertFalse(page.isComplete)
+        XCTAssertTrue(page.truncated)
+        XCTAssertEqual(page.unknownBlockIDs, ["b1", "b2"])
+    }
+
+    /// An empty page renders to an empty string, not to a failure.
+    func testAnEmptyPageRendersToEmptyMarkdown() async throws {
+        let body = #"{"object":"page_markdown","id":"x","markdown":"","truncated":false,"unknown_block_ids":[]}"#
+        let recorder = Recorder(body)
+        let text = try await Notion(token: "t", transport: recorder.transport)
+            .markdown("2f8e1c0d123456789abcdef012345678")
+        XCTAssertEqual(text, "")
     }
 
     /// Notion answers 404 for "gone" and for "not shared with you" alike.

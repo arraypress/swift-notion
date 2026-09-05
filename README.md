@@ -15,20 +15,28 @@ try await notion.rows(databaseURL, sortBy: "Due")
 
 ## Why a token and not OAuth
 
-An **internal integration secret** is just an API key: made in two minutes at
-Settings → Connections → Develop, no OAuth flow, no review, no server. OAuth is
-only needed when each user connects their own workspace without pasting
-anything — a consumer app's problem, not a library's.
+Both kinds of Notion token are just API keys, made in about two minutes, with
+no OAuth flow, no review and no server. OAuth is only needed when each user
+connects their own workspace without pasting anything — a consumer app's
+problem, not a library's.
 
-## The gotcha that catches everyone
+## Two kinds of token, and the gotcha only one of them has
 
-**A perfectly valid token sees nothing until a human shares each page with the
-integration** (⋯ → Connections → your integration). An empty search is the
-normal symptom, and Notion returns `404` for "not shared" and "does not exist"
-alike — indistinguishable.
+| | Where | What it can see |
+|---|---|---|
+| **Personal access token** (`ntn_…`) | Settings → Connections → your token | The whole workspace, immediately |
+| **Internal integration secret** | Settings → Connections → Develop | **Nothing, until a human shares each page with it** |
 
-So this library throws `.notShared` rather than handing back an empty list, and
-says what to do. That one behaviour saves more time than everything else here.
+The second is the one that catches everyone: a perfectly valid secret sees
+nothing until someone opens each page → ⋯ → Connections → the integration. An
+empty search is the normal symptom, and Notion returns `404` for "not shared"
+and "does not exist" alike — indistinguishable.
+
+So an **unfiltered** search that comes back empty throws `.notShared` and says
+what to do, rather than looking like an empty workspace. A search with a query
+that simply matches nothing returns empty results, because that is an answer
+and not a fault — reporting it as "nothing is shared" would send you off to
+re-share pages that were never the problem.
 
 ## The property model is the difficulty
 
@@ -69,13 +77,26 @@ All three work. The URL is what people have to hand.
 ## Content
 
 ```swift
-try await notion.markdown(url)   // headings, lists, to-dos, quotes, code
-try await notion.blocks(url)     // or the blocks themselves
+try await notion.markdown(url)      // Notion's own renderer
+try await notion.pageMarkdown(url)  // …plus whether anything was lost
+try await notion.blocks(url)        // or the blocks themselves
 ```
 
-One level deep. A nested list's children are **reported** by
-`block.hasChildren`, not fetched — following them silently would turn one call
-into dozens.
+`markdown` is `GET /v1/pages/{id}/markdown` — Notion renders the page itself,
+so **bold, italics, strikethrough, code, links and colour survive**, toggles
+come back as `<details>`, and nested content comes with it. Measured on a real
+page: the server's render was 1441 characters against 854 for a local block
+walk, and the walk preserved none of the seven formatting markers.
+
+`pageMarkdown` adds the two ways Notion admits the result is incomplete —
+`truncated` for a page too large to render, and `unknownBlockIDs` for blocks it
+has no Markdown for. `isComplete` is both at once. Ignoring them loses content
+silently, which is the failure worth preventing.
+
+`blocks` is still one level deep: a nested list's children are **reported** by
+`block.hasChildren`, not fetched. `blockMarkdown` assembles Markdown from them
+locally, for callers that already hold blocks or must not spend a second
+request — it flattens formatting, and that is the trade.
 
 ## Writing
 
@@ -93,10 +114,18 @@ states its scope.
 `Notion-Version: 2022-06-28` is pinned, not "latest" — an unannounced shape
 change is not something to discover in production.
 
-The response shapes here are Notion's documented ones and are pinned by 18
-offline tests. **They have not yet been checked against a live workspace** —
-the transport, headers, auth and error paths were (a real request returns
-Notion's own `"API token is invalid."`), but the success shapes await a token.
+That pin is now four years old and there is a migration waiting. At
+`2026-03-11` a **database becomes a `data_source`, with a different id**:
+a search filter of `"database"` is rejected outright (`body.filter.value should
+be "page" or "data_source"`), and the same database comes back under a
+different identifier. `GET /v1/databases/{id}` still answers at both versions,
+so nothing is broken today — but moving the pin means migrating the model, not
+editing a string. Verified against a live workspace, both versions, 2026-09-05.
+
+Verified live against a real workspace on 2026-09-05: `me`, `search`, `page`,
+`blocks`, `markdown`, `pageMarkdown`, `database` and `rows` all decode from
+real data, including a title column named something other than "Title". Pinned
+by 23 offline tests, with the fixtures taken from those real responses.
 
 ## Installation
 

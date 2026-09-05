@@ -74,9 +74,12 @@ public struct Notion: Sendable {
     ///   - query: Free text over titles. Empty lists everything shared.
     ///   - kind: Restrict to pages or databases.
     ///   - limit: How many, 1–100.
-    /// - Throws: ``NotionError/notShared(_:)`` when the token is valid but
-    ///   nothing has been shared with it — otherwise this looks like an empty
-    ///   workspace.
+    /// - Throws: ``NotionError/notShared(_:)`` when an *unfiltered* search
+    ///   comes back empty, because a valid internal-integration token that has
+    ///   been shared nothing is indistinguishable from an empty workspace.
+    ///   A `query` that simply matches nothing returns empty results instead —
+    ///   that is an answer, not a fault. Workspace-scoped `ntn_` personal
+    ///   access tokens see everything and never hit the first case.
     public func search(_ query: String = "", kind: Kind? = nil,
                        limit: Int = 25) async throws -> SearchResults {
         var body: [String: JSONValue] = [
@@ -90,7 +93,11 @@ public struct Notion: Sendable {
         }
         let data = try await request("POST", "/v1/search", body: .object(body))
         let results = try decodeResults(from: data)
-        guard !results.isEmpty else {
+        // Empty is only suspicious when nothing was asked for. A query that
+        // matches nothing is a legitimate empty answer, and reporting it as
+        // "nothing is shared" sends the caller to fix the wrong thing.
+        let unfiltered = query.trimmingCharacters(in: .whitespaces).isEmpty && kind == nil
+        guard !(results.isEmpty && unfiltered) else {
             throw NotionError.notShared("the integration can see nothing")
         }
         return results
@@ -126,8 +133,28 @@ public struct Notion: Sendable {
         return try decode(Response.self, from: data).results ?? []
     }
 
-    /// A page's content as Markdown.
+    /// A page's content as Markdown, rendered by Notion itself.
+    ///
+    /// Prefer this over assembling ``blocks(_:limit:)`` by hand: the server
+    /// keeps inline formatting (bold, links, colour, code), renders toggles as
+    /// `<details>`, and descends into children — none of which a one-level
+    /// block walk can do. See ``pageMarkdown(_:)`` for whether it was cut short.
     public func markdown(_ identifier: String) async throws -> String {
+        try await pageMarkdown(identifier).markdown
+    }
+
+    /// A page's Markdown together with what the renderer could not represent.
+    public func pageMarkdown(_ identifier: String) async throws -> PageMarkdown {
+        let id = try Notion.identifier(identifier)
+        let data = try await request("GET", "/v1/pages/\(id)/markdown")
+        return try decode(PageMarkdown.self, from: data)
+    }
+
+    /// A page's content as Markdown, assembled locally from its blocks.
+    ///
+    /// One level deep and formatting-flattened. Kept for callers that already
+    /// hold blocks, or that must not spend a second request.
+    public func blockMarkdown(_ identifier: String) async throws -> String {
         try await blocks(identifier)
             .map(\.markdown)
             .filter { !$0.isEmpty }
