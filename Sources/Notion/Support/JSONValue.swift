@@ -38,6 +38,7 @@ public indirect enum JSONValue: Sendable, Codable, Equatable {
         self = .null
     }
 
+    /// Writes the value back as the JSON it came from.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
@@ -52,11 +53,17 @@ public indirect enum JSONValue: Sendable, Codable, Equatable {
 
     // MARK: - Reading
 
+    /// The string, or nil if this is not one.
     public var string: String? { if case .string(let value) = self { return value }; return nil }
+    /// The number, or nil if this is not one.
     public var number: Double? { if case .number(let value) = self { return value }; return nil }
+    /// The boolean, or nil if this is not one.
     public var bool: Bool? { if case .bool(let value) = self { return value }; return nil }
+    /// The object, or nil if this is not one.
     public var object: [String: JSONValue]? { if case .object(let value) = self { return value }; return nil }
+    /// The array, or nil if this is not one.
     public var array: [JSONValue]? { if case .array(let value) = self { return value }; return nil }
+    /// Whether this is JSON `null`.
     public var isNull: Bool { self == .null }
 
     /// A value by key path — `value["properties"]?["Name"]`.

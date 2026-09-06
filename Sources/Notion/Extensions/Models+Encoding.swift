@@ -18,6 +18,7 @@ extension Page {
         case createdTime, lastEditedTime, archived, isDatabaseRow
     }
 
+    /// Writes the flattened shape, not the nested one Notion sends.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: OutputKeys.self)
         try container.encode(id, forKey: .id)
@@ -39,6 +40,7 @@ extension Database {
         case id, title, description, schema, titleColumn, url, createdTime, lastEditedTime
     }
 
+    /// Writes the flattened shape, not the nested one Notion sends.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: OutputKeys.self)
         try container.encode(id, forKey: .id)
@@ -57,6 +59,7 @@ extension Block {
         case id, type, text, checked, language, hasChildren, markdown
     }
 
+    /// Writes the flattened shape, not the nested one Notion sends.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: OutputKeys.self)
         try container.encode(id, forKey: .id)
@@ -72,6 +75,7 @@ extension Block {
 extension User {
     private enum OutputKeys: String, CodingKey { case id, name, type, botOwner }
 
+    /// Writes the flattened shape, not the nested one Notion sends.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: OutputKeys.self)
         try container.encode(id, forKey: .id)
@@ -86,6 +90,7 @@ extension PageMarkdown {
         case id, markdown, truncated, unknownBlockIDs, isComplete
     }
 
+    /// Writes the flattened shape, not the nested one Notion sends.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: OutputKeys.self)
         try container.encode(id, forKey: .id)

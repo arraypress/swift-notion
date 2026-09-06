@@ -18,6 +18,8 @@
 //  says so rather than returning a bare empty list.
 //
 
+//
+
 import Foundation
 
 /// A client for the Notion API.
@@ -33,6 +35,7 @@ public struct Notion: Sendable {
     /// to the response shape is not something a caller should discover in
     /// production.
     public static let apiVersion = "2022-06-28"
+    /// The API host. Overridable so tests can point somewhere else.
     public static let defaultHost = "api.notion.com"
 
     /// The most rows Notion returns in one page.
@@ -388,19 +391,5 @@ public struct Notion: Sendable {
             }
         }
         return SearchResults(pages: pages, databases: databases)
-    }
-}
-
-/// What a search found.
-public struct SearchResults: Sendable, Codable, Equatable {
-    public let pages: [Page]
-    public let databases: [Database]
-
-    public var isEmpty: Bool { pages.isEmpty && databases.isEmpty }
-    public var count: Int { pages.count + databases.count }
-
-    public init(pages: [Page], databases: [Database]) {
-        self.pages = pages
-        self.databases = databases
     }
 }

@@ -25,6 +25,7 @@ public enum NotionError: Error, LocalizedError, Sendable, Equatable {
     /// An id that is not a Notion UUID.
     case badIdentifier(String)
 
+    /// A one-line reason, for a CLI or a log.
     public var errorDescription: String? {
         switch self {
         case .unauthorized(let detail): return detail
